@@ -32,6 +32,9 @@ DEF_CMD_TUPLE_LT (Commands::ForceTrainProceed,        CmdStationCouplingOrForceP
 DEF_CMD_TUPLE_LT (Commands::ReverseTrainDirection,    CmdReverseTrainDirection,     {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, bool>)
 DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestriction, {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, uint16_t>)
 
+/* Prototype GUI name: use the existing vehicle-management command slot. */
+#define DecoupleTrain ForceTrainProceed
+
 inline bool DetachTrainWagonChain(Train *part)
 {
 	if (part == nullptr || part->Previous() == nullptr) return false;
@@ -75,9 +78,7 @@ inline bool AttachTrainWagonChain(Train *dst, Train *chain)
 inline const Train *FindCouplableWagonAtStation(const Train *train)
 {
 	if (train == nullptr) return nullptr;
-	for (Vehicle *v : VehiclesOnTile(train->tile)) {
-		if (v->type != VehicleType::Train) continue;
-		Train *wagon = Train::From(v);
+	for (Train *wagon : VehiclesOnTile<VehicleType::Train>(train->tile)) {
 		if (wagon->owner != train->owner) continue;
 		if (wagon->vehstatus.Test(VehState::Crashed)) continue;
 		if (!wagon->IsFreeWagon() || wagon->First() != wagon) continue;
