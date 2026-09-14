@@ -19,8 +19,85 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply patch
-        run: git apply --index patches/0.0.2.patch
+      - name: Apply 0.0.2 changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              if new in text:
+                  return
+              if old not in text:
+                  raise SystemExit(f"Pattern not found in {path}: {old!r}")
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once("src/command_type.h",
+              "\tDesyncCheck,                            ///< Force desync checks to be run\n\n\tEnd,",
+              "\tDesyncCheck,                            ///< Force desync checks to be run\n\n\tDecoupleTrain,                          ///< Detach the last wagon from a stopped train\n\n\tEnd,")
+
+          replace_once("src/train_cmd.h",
+              '#include "command_type.h"\n#include "vehicle_type.h"\n#include "train.h"',
+              '#include "company_func.h"\n#include "command_type.h"\n#include "vehicle_type.h"\n#include "train.h"')
+
+          replace_once("src/train_cmd.h",
+              'DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestriction, {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, uint16_t>)',
+              'DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestriction, {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, uint16_t>)\nDEF_CMD_TUPLE_LT (Commands::DecoupleTrain,            CmdDecoupleTrain,             {}, CommandType::VehicleManagement,   CmdDataT<VehicleID>)')
+
+          marker = '\n#endif /* TRAIN_CMD_H */\n'
+          function = r'''
+/**
+ * Prototype command for the first in-game coupling test.
+ * Detach the last logical wagon unit from a stopped train in a depot.
+ */
+inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)
+{
+\tTrain *train = Train::GetIfValid(veh_id);
+\tif (train == nullptr || !train->IsPrimaryVehicle()) return CMD_ERROR;
+\tif (train->owner != _current_company) return CMD_ERROR;
+\tif (!train->IsStoppedInDepot()) return CMD_ERROR;
+
+\tTrain *last_unit = train->GetLastUnit();
+\tif (last_unit == nullptr || !last_unit->IsWagon()) return CMD_ERROR;
+
+\tif (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(last_unit)) return CMD_ERROR;
+\treturn CommandCost();
+}
+'''
+          replace_once("src/train_cmd.h", marker, "\n" + function + marker)
+
+          replace_once("src/lang/english.txt",
+              'STR_VEHICLE_VIEW_TRAIN_IGNORE_SIGNAL_TOOLTIP                    :{BLACK}Force train to proceed without waiting for signal to clear it',
+              'STR_VEHICLE_VIEW_TRAIN_IGNORE_SIGNAL_TOOLTIP                    :{BLACK}Force train to proceed without waiting for signal to clear it\nSTR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP                         :{BLACK}DECOUPLE: detach the last wagon from the stopped train')
+
+          replace_once("src/vehicle_gui.cpp",
+              '\tif (v->type == VehicleType::Train) {\n\t\tthis->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, Train::From(v)->force_proceed == TFP_SIGNAL);\n\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !is_localcompany);\n\t}',
+              '''\tif (v->type == VehicleType::Train) {
+\t\tTrain *train = Train::From(v);
+\t\tif (train->IsStoppedInDepot()) {
+\t\t\tbool can_decouple = is_localcompany && train->GetLastUnit() != nullptr && train->GetLastUnit()->IsWagon();
+\t\t\tthis->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP);
+\t\t\tthis->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, false);
+\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_decouple);
+\t\t} else {
+\t\t\tthis->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_IGNORE_SIGNAL_TOOLTIP);
+\t\t\tthis->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, train->force_proceed == TFP_SIGNAL);
+\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !is_localcompany);
+\t\t}
+\t}''')
+
+          replace_once("src/vehicle_gui.cpp",
+              '\t\t\tcase WID_VV_FORCE_PROCEED: // force proceed\n\t\t\t\tassert(v->type == VehicleType::Train);\n\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);\n\t\t\t\tbreak;',
+              '''\t\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple
+\t\t\t\tassert(v->type == VehicleType::Train);
+\t\t\t\tif (Train::From(v)->IsStoppedInDepot()) {
+\t\t\t\t\tCommand<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t} else {
+\t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t}
+\t\t\t\tbreak;''')
+          PY
 
       - name: Commit and push
         run: |
