@@ -101,12 +101,10 @@ inline bool CanDecoupleTrainAtStation(const Train *train)
 		Debug(misc, 0, "Coupling debug: train {} is in depot", train->index);
 		return false;
 	}
-	if (!train->vehstatus.Test(VehState::Stopped)) {
-		Debug(misc, 0, "Coupling debug: train {} is not stopped, vehstatus={}", train->index, train->vehstatus.base());
-		return false;
-	}
+	/* During station loading OpenTTD may clear VehState::Stopped while keeping the train at zero speed.
+	 * Coupling/decoupling is a zero-speed consist operation, so use speed as the authoritative motion check. */
 	if (train->cur_speed != 0) {
-		Debug(misc, 0, "Coupling debug: train {} speed={}", train->index, train->cur_speed);
+		Debug(misc, 0, "Coupling debug: train {} is moving, cur_speed={}, vehstatus={}", train->index, train->cur_speed, train->vehstatus.base());
 		return false;
 	}
 
@@ -137,8 +135,8 @@ inline bool CanCoupleTrainAtStation(const Train *train, const Train *chain)
 		Debug(misc, 0, "Coupling debug: destination train {} invalid primary/depot state", train->index);
 		return false;
 	}
-	if (!train->vehstatus.Test(VehState::Stopped) || train->cur_speed != 0) {
-		Debug(misc, 0, "Coupling debug: destination train {} not stopped, speed={}", train->index, train->cur_speed);
+	if (train->cur_speed != 0) {
+		Debug(misc, 0, "Coupling debug: destination train {} moving, speed={}, vehstatus={}", train->index, train->cur_speed, train->vehstatus.base());
 		return false;
 	}
 	if (train->owner != chain->owner) {
