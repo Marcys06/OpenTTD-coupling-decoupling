@@ -22,7 +22,7 @@ constexpr bool IsTrainCouplingOrderAction(uint16_t action)
 }
 
 /** Post the station coupling/decoupling command for a train. */
-inline bool PostTrainCouplingOrderAction(DoCommandFlag flags, VehicleID vehicle)
+inline bool PostTrainCouplingOrderAction(VehicleID vehicle)
 {
 	return Command<Commands::DecoupleTrain>::Post(vehicle, VehicleID::Invalid()).Succeeded();
 }
