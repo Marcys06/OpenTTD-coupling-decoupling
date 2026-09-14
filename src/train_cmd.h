@@ -1,8 +1,7 @@
 /*
  * This file is part of OpenTTD.
  * OpenTTD is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
- * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
- * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
  */
 
 /** @file train_cmd.h Command definitions related to trains. */
@@ -30,7 +29,7 @@ CommandCost CmdStationCouplingOrForceProceed(DoCommandFlags flags, VehicleID veh
 
 DEF_CMD_TUPLE_LT (Commands::MoveRailVehicle,          CmdMoveRailVehicle,           {}, CommandType::VehicleConstruction, CmdDataT<VehicleID, VehicleID, MoveRailVehicleFlags>)
 DEF_CMD_TUPLE_LT (Commands::ForceTrainProceed,        CmdStationCouplingOrForceProceed, {}, CommandType::VehicleManagement, CmdDataT<VehicleID>)
-DEF_CMD_TUPLE_LT (Commands::DecoupleTrain,            CmdDecoupleTrain,              {}, CommandType::VehicleManagement, CmdDataT<VehicleID>)
+DEF_CMD_TUPLE_LT (Commands::DecoupleTrain,            CmdDecoupleTrain,              {}, CommandType::VehicleManagement, CmdDataT<VehicleID, VehicleID>)
 DEF_CMD_TUPLE_LT (Commands::ReverseTrainDirection,    CmdReverseTrainDirection,     {}, CommandType::VehicleManagement, CmdDataT<VehicleID, bool>)
 DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestriction, {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, uint16_t>)
 
@@ -74,7 +73,7 @@ inline bool AttachTrainWagonChain(Train *dst, Train *chain)
 	return true;
 }
 
-inline const Train *FindCouplableWagonAtStation(const Train *train)
+inline const Train *FindCouplableWagonAtStation(const Train *train, VehicleID selected_wagon = VehicleID::Invalid())
 {
 	if (train == nullptr) return nullptr;
 	for (Train *wagon : VehiclesOnTile<VehicleType::Train>(train->tile)) {
@@ -82,12 +81,13 @@ inline const Train *FindCouplableWagonAtStation(const Train *train)
 		if (wagon->vehstatus.Test(VehState::Crashed)) continue;
 		if (!wagon->IsFreeWagon() || wagon->First() != wagon) continue;
 		if (wagon->tile != train->tile) continue;
+		if (selected_wagon != VehicleID::Invalid() && wagon->index != selected_wagon) continue;
 		return wagon;
 	}
 	return nullptr;
 }
 
-inline bool CanDecoupleTrainAtStation(const Train *train)
+inline bool CanDecoupleTrainAtStation(const Train *train, VehicleID selected_wagon = VehicleID::Invalid())
 {
 	if (train == nullptr) {
 		Debug(misc, 0, "Coupling debug: invalid train");
@@ -101,10 +101,23 @@ inline bool CanDecoupleTrainAtStation(const Train *train)
 		Debug(misc, 0, "Coupling debug: train {} is in depot", train->index);
 		return false;
 	}
-	/* During station loading OpenTTD may clear VehState::Stopped while keeping the train at zero speed.
-	 * Coupling/decoupling is a zero-speed consist operation, so use speed as the authoritative motion check. */
+	/* During station loading OpenTTD may clear VehState::Stopped while keeping the train at zero speed. */
 	if (train->cur_speed != 0) {
 		Debug(misc, 0, "Coupling debug: train {} is moving, cur_speed={}, vehstatus={}", train->index, train->cur_speed, train->vehstatus.base());
+		return false;
+	}
+
+	if (selected_wagon != VehicleID::Invalid()) {
+		const Train *selected = Train::GetIfValid(selected_wagon);
+		if (selected == nullptr || selected->owner != train->owner || selected->vehstatus.Test(VehState::Crashed)) return false;
+		if (selected->First() == train && selected->Previous() != nullptr && selected->IsWagon()) {
+			Debug(misc, 0, "Coupling debug: train {} can decouple starting at selected wagon {}", train->index, selected_wagon);
+			return true;
+		}
+		if (FindCouplableWagonAtStation(train, selected_wagon) != nullptr) {
+			Debug(misc, 0, "Coupling debug: train {} can couple selected free wagon {}", train->index, selected_wagon);
+			return true;
+		}
 		return false;
 	}
 
@@ -158,10 +171,10 @@ inline bool CanCoupleTrainAtStation(const Train *train, const Train *chain)
 	return true;
 }
 
-inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)
+inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id, VehicleID selected_wagon)
 {
 	Train *train = Train::GetIfValid(veh_id);
-	Debug(misc, 0, "Coupling debug: command veh={} flags={} execute={}", veh_id, flags.base(), flags.Test(DoCommandFlag::Execute));
+	Debug(misc, 0, "Coupling debug: command veh={} selected_wagon={} flags={} execute={}", veh_id, selected_wagon, flags.base(), flags.Test(DoCommandFlag::Execute));
 	if (train == nullptr) {
 		Debug(misc, 0, "Coupling debug: vehicle {} not found", veh_id);
 		return CMD_ERROR;
@@ -171,31 +184,33 @@ inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)
 		return CMD_ERROR;
 	}
 	if (train->owner != _current_company) {
-		Debug(misc, 0, "Coupling debug: owner mismatch vehicle={} current_company={}", train->owner, _current_company);
+		Debug(misc, 0, "Coupling debug: owner mismatch vehicle={} current_company={}", veh_id, _current_company);
 		return CMD_ERROR;
 	}
-	if (!CanDecoupleTrainAtStation(train)) return CMD_ERROR;
+	if (!CanDecoupleTrainAtStation(train, selected_wagon)) return CMD_ERROR;
 
+	Train *selected = selected_wagon == VehicleID::Invalid() ? nullptr : Train::GetIfValid(selected_wagon);
 	Train *last_unit = train->GetLastUnit();
-	if (last_unit->IsWagon()) {
-		Debug(misc, 0, "Coupling debug: detaching wagon chain starting at {}", last_unit->index);
-		if (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(last_unit)) {
-			Debug(misc, 0, "Coupling debug: DetachTrainWagonChain failed for {}", last_unit->index);
-			return CMD_ERROR;
-		}
+	if (selected != nullptr && selected->First() == train && selected->Previous() != nullptr && selected->IsWagon()) {
+		Debug(misc, 0, "Coupling debug: detaching selected wagon chain starting at {}", selected->index);
+		if (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(selected)) return CMD_ERROR;
 		return CommandCost();
 	}
 
-	const Train *found = FindCouplableWagonAtStation(train);
+	if (selected == nullptr && last_unit->IsWagon()) {
+		Debug(misc, 0, "Coupling debug: detaching default end wagon chain starting at {}", last_unit->index);
+		if (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(last_unit)) return CMD_ERROR;
+		return CommandCost();
+	}
+
+	const Train *found = FindCouplableWagonAtStation(train, selected_wagon);
 	if (found == nullptr) {
-		Debug(misc, 0, "Coupling debug: no wagon found for coupling");
+		Debug(misc, 0, "Coupling debug: no selected wagon found for coupling");
 		return CMD_ERROR;
 	}
 	Train *chain = Train::GetIfValid(found->index);
-	if (flags.Test(DoCommandFlag::Execute) && !AttachTrainWagonChain(train, chain)) {
-		Debug(misc, 0, "Coupling debug: AttachTrainWagonChain failed for train={} wagon={}", train->index, chain->index);
-		return CMD_ERROR;
-	}
+	if (!CanCoupleTrainAtStation(train, chain)) return CMD_ERROR;
+	if (flags.Test(DoCommandFlag::Execute) && !AttachTrainWagonChain(train, chain)) return CMD_ERROR;
 	Debug(misc, 0, "Coupling debug: coupling command accepted train={} wagon={}", train->index, chain->index);
 	return CommandCost();
 }
@@ -205,7 +220,7 @@ inline CommandCost CmdStationCouplingOrForceProceed(DoCommandFlags flags, Vehicl
 	Train *train = Train::GetIfValid(veh_id);
 	if (train != nullptr && CanDecoupleTrainAtStation(train)) {
 		Debug(misc, 0, "Coupling debug: ForceProceed redirected to coupling command for {}", veh_id);
-		return CmdDecoupleTrain(flags, veh_id);
+		return CmdDecoupleTrain(flags, veh_id, VehicleID::Invalid());
 	}
 	Debug(misc, 0, "Coupling debug: ForceProceed kept as normal command for {}", veh_id);
 	return CmdForceTrainProceed(flags, veh_id);
