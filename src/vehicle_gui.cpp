@@ -4095,10 +4095,12 @@ public:
 				size.height = std::max<uint>({size.height, (uint)GetCharacterHeight(FontSize::Normal), GetScaledSpriteSize(SPR_WARNING_SIGN).height, GetScaledSpriteSize(SPR_FLAG_VEH_STOPPED).height, GetScaledSpriteSize(SPR_FLAG_VEH_RUNNING).height}) + padding.height;
 				break;
 
-			case WID_VV_FORCE_PROCEED:
-				if (v->type != VehicleType::Train) {
-					size.height = 0;
-					size.width = 0;
+			case WID_VV_FORCE_PROCEED: // force proceed / decouple
+				assert(v->type == VehicleType::Train);
+				if (CanDecoupleTrainAtStation(Train::From(v))) {
+					Command<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+				} else {
+					Command<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
 				}
 				break;
 
@@ -4134,11 +4136,10 @@ public:
 
 		if (v->type == VehicleType::Train) {
 			Train *train = Train::From(v);
-			if (train->IsStoppedInDepot()) {
-				bool can_decouple = can_control && train->GetLastUnit() != nullptr && train->GetLastUnit()->IsWagon();
+			if (CanDecoupleTrainAtStation(train) && can_control) {
 				this->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP);
 				this->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, false);
-				this->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_decouple);
+				this->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, false);
 			} else {
 				this->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_IGNORE_SIGNAL_TOOLTIP);
 				this->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, train->force_proceed == TFP_SIGNAL);
