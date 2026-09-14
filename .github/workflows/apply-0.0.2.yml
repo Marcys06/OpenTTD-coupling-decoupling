@@ -1,6 +1,7 @@
 name: Apply 0.0.2 coupling patch
 
 on:
+  workflow_dispatch:
   push:
     branches: [jgrpp]
     paths:
