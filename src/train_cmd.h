@@ -71,6 +71,21 @@ inline bool AttachTrainWagonChain(Train *dst, Train *chain)
 	return true;
 }
 
+inline const Train *FindCouplableWagonAtStation(const Train *train)
+{
+	if (train == nullptr) return nullptr;
+	for (Vehicle *v : VehiclesOnTile(train->tile)) {
+		if (v->type != VehicleType::Train) continue;
+		Train *wagon = Train::From(v);
+		if (wagon->owner != train->owner) continue;
+		if (wagon->vehstatus.Test(VehState::Crashed)) continue;
+		if (!wagon->IsFreeWagon() || wagon->First() != wagon) continue;
+		if (wagon->tile != train->tile) continue;
+		return wagon;
+	}
+	return nullptr;
+}
+
 inline bool CanDecoupleTrainAtStation(const Train *train)
 {
 	if (train == nullptr || !train->IsPrimaryVehicle()) return false;
@@ -80,7 +95,7 @@ inline bool CanDecoupleTrainAtStation(const Train *train)
 
 	const Train *last_unit = train;
 	while (last_unit->GetNextUnit() != nullptr) last_unit = last_unit->GetNextUnit();
-	return last_unit->IsWagon();
+	return last_unit->IsWagon() || FindCouplableWagonAtStation(train) != nullptr;
 }
 
 inline bool CanCoupleTrainAtStation(const Train *train, const Train *chain)
@@ -102,7 +117,15 @@ inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)
 	if (!CanDecoupleTrainAtStation(train)) return CMD_ERROR;
 
 	Train *last_unit = train->GetLastUnit();
-	if (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(last_unit)) return CMD_ERROR;
+	if (last_unit->IsWagon()) {
+		if (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(last_unit)) return CMD_ERROR;
+		return CommandCost();
+	}
+
+	const Train *found = FindCouplableWagonAtStation(train);
+	if (found == nullptr) return CMD_ERROR;
+	Train *chain = Train::GetIfValid(found->index);
+	if (flags.Test(DoCommandFlag::Execute) && !AttachTrainWagonChain(train, chain)) return CMD_ERROR;
 	return CommandCost();
 }
 
