@@ -32,11 +32,6 @@ DEF_CMD_TUPLE_LT (Commands::ForceTrainProceed,        CmdStationCouplingOrForceP
 DEF_CMD_TUPLE_LT (Commands::ReverseTrainDirection,    CmdReverseTrainDirection,     {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, bool>)
 DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestriction, {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, uint16_t>)
 
-/* The station coupling action uses the existing vehicle-management command slot.
- * Keep the GUI's prototype command name source-compatible until a dedicated enum
- * value is added to command_type.h. */
-#define DecoupleTrain ForceTrainProceed
-
 inline bool DetachTrainWagonChain(Train *part)
 {
 	if (part == nullptr || part->Previous() == nullptr) return false;
