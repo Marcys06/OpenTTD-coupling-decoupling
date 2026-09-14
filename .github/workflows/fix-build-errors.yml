@@ -1,7 +1,7 @@
 name: Fix decoupling GUI compile errors
 
 on:
-  push:
+  pull_request:
     branches: [jgrpp]
 
 permissions:
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: jgrpp
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Fix vehicle GUI source
@@ -21,7 +21,6 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           p = Path('src/vehicle_gui.cpp')
           s = p.read_text(encoding='utf-8')
 
@@ -33,11 +32,10 @@ jobs:
 \t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
 \t\t\t\t}
 \t\t\t\tbreak;'''
-          if bad_size not in s:
-              raise SystemExit('bad UpdateWidgetSize block not found')
+          if bad_size not in s: raise SystemExit('bad UpdateWidgetSize block not found')
           s = s.replace(bad_size, '', 1)
 
-          bad_buttons = '''\t\tif (v->type == VehicleType::Train) {
+          old_buttons = '''\t\tif (v->type == VehicleType::Train) {
 \t\t\tTrain *train = Train::From(v);
 \t\t\tif (CanDecoupleTrainAtStation(train) && can_control) {
 \t\t\t\tthis->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP);
@@ -49,23 +47,22 @@ jobs:
 \t\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_control);
 \t\t\t}
 \t\t}'''
-          good_buttons = '''\t\tif (v->type == VehicleType::Train) {
+          new_buttons = '''\t\tif (v->type == VehicleType::Train) {
 \t\t\tconst Train *train = Train::From(v);
-\t\t\tif (CanDecoupleTrainAtStation(train)) {
+\t\t\tif (CanDecoupleTrainAtStation(train) && can_control) {
 \t\t\t\tthis->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP);
 \t\t\t\tthis->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, false);
-\t\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_control);
+\t\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, false);
 \t\t\t} else {
 \t\t\t\tthis->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_IGNORE_SIGNAL_TOOLTIP);
 \t\t\t\tthis->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, train->force_proceed == TFP_SIGNAL);
 \t\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_control);
 \t\t\t}
 \t\t}'''
-          if bad_buttons not in s:
-              raise SystemExit('bad UpdateButtons block not found')
-          s = s.replace(bad_buttons, good_buttons, 1)
+          if old_buttons not in s: raise SystemExit('bad UpdateButtons block not found')
+          s = s.replace(old_buttons, new_buttons, 1)
 
-          old_click = '''\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple
+          old_click = '''\t\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple
 \t\t\t\tassert(v->type == VehicleType::Train);
 \t\t\t\tif (Train::From(v)->IsStoppedInDepot()) {
 \t\t\t\t\tCommand<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
@@ -73,7 +70,7 @@ jobs:
 \t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
 \t\t\t\t}
 \t\t\t\tbreak;'''
-          new_click = '''\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple
+          new_click = '''\t\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple
 \t\t\t\tassert(v->type == VehicleType::Train);
 \t\t\t\tif (CanDecoupleTrainAtStation(Train::From(v))) {
 \t\t\t\t\tCommand<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
@@ -81,20 +78,23 @@ jobs:
 \t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
 \t\t\t\t}
 \t\t\t\tbreak;'''
-          if old_click not in s:
-              raise SystemExit('old click block not found')
+          if old_click not in s: raise SystemExit('old click block not found')
           s = s.replace(old_click, new_click, 1)
-
           p.write_text(s, encoding='utf-8', newline='\n')
           PY
 
-      - name: Commit and remove fixer
+      - name: Commit fixes to PR branch
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/vehicle_gui.cpp .github/workflows/fix-build-errors.yml
-          git commit -m "0.0.3: Fix decoupling GUI compile errors"
+          git add src/vehicle_gui.cpp
+          git commit -m "0.0.3: Fix station decoupling GUI"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
+      - name: Remove temporary workflow from PR branch
+        shell: bash
+        run: |
           git rm .github/workflows/fix-build-errors.yml
-          git commit -m "0.0.3: Remove temporary fix workflow"
-          git push origin jgrpp
+          git commit -m "0.0.3: Remove temporary GUI fix workflow"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
