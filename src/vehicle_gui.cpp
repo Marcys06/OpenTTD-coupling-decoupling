@@ -4095,12 +4095,10 @@ public:
 				size.height = std::max<uint>({size.height, (uint)GetCharacterHeight(FontSize::Normal), GetScaledSpriteSize(SPR_WARNING_SIGN).height, GetScaledSpriteSize(SPR_FLAG_VEH_STOPPED).height, GetScaledSpriteSize(SPR_FLAG_VEH_RUNNING).height}) + padding.height;
 				break;
 
-			case WID_VV_FORCE_PROCEED: // force proceed / decouple
-				assert(v->type == VehicleType::Train);
-				if (CanDecoupleTrainAtStation(Train::From(v))) {
-					Command<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
-				} else {
-					Command<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+			case WID_VV_FORCE_PROCEED:
+				if (v->type != VehicleType::Train) {
+					size.height = 0;
+					size.width = 0;
 				}
 				break;
 
@@ -4135,16 +4133,8 @@ public:
 		this->UpdateDepotButton();
 
 		if (v->type == VehicleType::Train) {
-			Train *train = Train::From(v);
-			if (CanDecoupleTrainAtStation(train) && can_control) {
-				this->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP);
-				this->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, false);
-				this->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, false);
-			} else {
-				this->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_IGNORE_SIGNAL_TOOLTIP);
-				this->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, train->force_proceed == TFP_SIGNAL);
-				this->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_control);
-			}
+			this->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, Train::From(v)->force_proceed == TFP_SIGNAL);
+			this->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_control);
 		}
 
 		if (v->type == VehicleType::Train || v->type == VehicleType::Road) {
@@ -4539,13 +4529,9 @@ public:
 					Command<Commands::ReverseTrainDirection>::Post(_vehicle_msg_translation_table[VCT_CMD_TURN_AROUND][v->type], v->tile, v->index, false);
 				}
 				break;
-			case WID_VV_FORCE_PROCEED: // force proceed / decouple
+			case WID_VV_FORCE_PROCEED: // force proceed
 				assert(v->type == VehicleType::Train);
-				if (Train::From(v)->IsStoppedInDepot()) {
-					Command<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
-				} else {
-					Command<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
-				}
+				Command<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
 				break;
 		}
 	}
