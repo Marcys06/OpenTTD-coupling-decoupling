@@ -78,8 +78,9 @@ inline bool CanDecoupleTrainAtStation(const Train *train)
 	if (!train->vehstatus.Test(VehState::Stopped) || train->cur_speed != 0) return false;
 	if (!train->current_order.IsAnyLoadingType()) return false;
 
-	const Train *last_unit = train->GetLastUnit();
-	return last_unit != nullptr && last_unit->IsWagon();
+	const Train *last_unit = train;
+	while (last_unit->GetNextUnit() != nullptr) last_unit = last_unit->GetNextUnit();
+	return last_unit->IsWagon();
 }
 
 inline bool CanCoupleTrainAtStation(const Train *train, const Train *chain)
