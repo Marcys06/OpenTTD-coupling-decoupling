@@ -113,7 +113,7 @@ inline bool CanDecoupleTrainAtStation(const Train *train)
 	const Train *last_unit = train;
 	while (last_unit->GetNextUnit() != nullptr) last_unit = last_unit->GetNextUnit();
 	if (last_unit->IsWagon()) {
-		Debug(misc, 0, "Coupling debug: train {} can decouple, last unit {} is wagon", train->index, train->index, last_unit->index);
+		Debug(misc, 0, "Coupling debug: train {} can decouple, last unit {} is wagon", train->index, last_unit->index);
 		return true;
 	}
 
