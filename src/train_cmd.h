@@ -14,12 +14,13 @@
 #include "command_type.h"
 #include "vehicle_type.h"
 #include "train.h"
+#include "vehicle_func.h"
 
 enum class MoveRailVehicleFlags : uint8_t {
-	None                  = 0,         ///< No flag set.
-	MoveChain             = (1U << 0), ///< Move all vehicles following the source vehicle
-	Virtual               = (1U << 1), ///< This is a virtual vehicle (for creating TemplateVehicles)
-	NewHead               = (1U << 2), ///< When moving a head vehicle, always reset the head state
+	None                  = 0,
+	MoveChain             = (1U << 0),
+	Virtual               = (1U << 1),
+	NewHead               = (1U << 2),
 };
 DECLARE_ENUM_AS_BIT_SET(MoveRailVehicleFlags)
 
@@ -28,20 +29,8 @@ DEF_CMD_TUPLE_LT (Commands::ForceTrainProceed,        CmdForceTrainProceed,     
 DEF_CMD_TUPLE_LT (Commands::ReverseTrainDirection,    CmdReverseTrainDirection,     {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, bool>)
 DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestriction, {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, uint16_t>)
 DEF_CMD_TUPLE_LT (Commands::DecoupleTrain,            CmdDecoupleTrain,             {}, CommandType::VehicleManagement,   CmdDataT<VehicleID>)
+DEF_CMD_TUPLE_LT (Commands::CoupleTrain,              CmdCoupleTrain,               {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, VehicleID>)
 
-/**
- * Detach a wagon unit and all following units from a train consist.
- *
- * The detached chain keeps the original Train objects and vehicle IDs. No vehicle
- * is cloned or recreated. The chain becomes a free wagon chain and can subsequently
- * be attached to another consist with AttachTrainWagonChain().
- *
- * Only logical wagon-unit boundaries are accepted. An articulated vehicle therefore
- * cannot be split between its individual articulated parts.
- *
- * @param part First vehicle of the wagon unit to detach.
- * @return true when the chain was detached, false when the request is invalid.
- */
 inline bool DetachTrainWagonChain(Train *part)
 {
 	if (part == nullptr || part->Previous() == nullptr) return false;
@@ -57,22 +46,13 @@ inline bool DetachTrainWagonChain(Train *part)
 	Train *next = tail->Next();
 	previous->SetNext(next);
 	tail->SetNext(nullptr);
+	part->SetFreeWagon();
 
 	front->ConsistChanged(CCF_ARRANGE);
 	part->ConsistChanged(CCF_ARRANGE);
 	return true;
 }
 
-/**
- * Attach a detached wagon chain to the rear of a train consist.
- *
- * The chain must already be detached (Previous() == nullptr) and must not start
- * with an engine. The physical Train objects and their vehicle IDs are preserved.
- *
- * @param dst Front engine of the destination train.
- * @param chain First vehicle of a free wagon chain.
- * @return true when the chain was attached, false when the request is invalid.
- */
 inline bool AttachTrainWagonChain(Train *dst, Train *chain)
 {
 	if (dst == nullptr || chain == nullptr) return false;
@@ -82,19 +62,15 @@ inline bool AttachTrainWagonChain(Train *dst, Train *chain)
 
 	Train *last_unit = dst->GetLastUnit();
 	if (last_unit == nullptr) return false;
-
 	Train *last_part = last_unit->GetLastEnginePart();
 	if (last_part == nullptr) return false;
 
+	chain->ClearFreeWagon();
 	last_part->SetNext(chain);
 	dst->ConsistChanged(CCF_ARRANGE);
 	return true;
 }
 
-/**
- * Return whether a train can be decoupled at its current station stop.
- * Coupling/decoupling is a route operation, not a depot operation.
- */
 inline bool CanDecoupleTrainAtStation(const Train *train)
 {
 	if (train == nullptr || !train->IsPrimaryVehicle()) return false;
@@ -102,11 +78,21 @@ inline bool CanDecoupleTrainAtStation(const Train *train)
 	if (!train->vehstatus.Test(VehState::Stopped) || train->cur_speed != 0) return false;
 	if (!train->current_order.IsAnyLoadingType()) return false;
 
-	Train *last_unit = train->GetLastUnit();
+	const Train *last_unit = train->GetLastUnit();
 	return last_unit != nullptr && last_unit->IsWagon();
 }
 
-/** Prototype command for the first in-game coupling test. */
+inline bool CanCoupleTrainAtStation(const Train *train, const Train *chain)
+{
+	if (train == nullptr || chain == nullptr) return false;
+	if (!train->IsPrimaryVehicle() || train->IsStoppedInDepot()) return false;
+	if (!train->vehstatus.Test(VehState::Stopped) || train->cur_speed != 0) return false;
+	if (!train->current_order.IsAnyLoadingType()) return false;
+	if (train->owner != chain->owner || !chain->IsFreeWagon() || chain->Previous() != nullptr) return false;
+	if (chain->tile != train->tile) return false;
+	return true;
+}
+
 inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)
 {
 	Train *train = Train::GetIfValid(veh_id);
@@ -116,6 +102,17 @@ inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)
 
 	Train *last_unit = train->GetLastUnit();
 	if (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(last_unit)) return CMD_ERROR;
+	return CommandCost();
+}
+
+inline CommandCost CmdCoupleTrain(DoCommandFlags flags, VehicleID train_id, VehicleID wagon_id)
+{
+	Train *train = Train::GetIfValid(train_id);
+	Train *chain = Train::GetIfValid(wagon_id);
+	if (!CanCoupleTrainAtStation(train, chain)) return CMD_ERROR;
+	if (train->owner != _current_company) return CMD_ERROR;
+
+	if (flags.Test(DoCommandFlag::Execute) && !AttachTrainWagonChain(train, chain)) return CMD_ERROR;
 	return CommandCost();
 }
 
