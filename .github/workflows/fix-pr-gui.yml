@@ -1,0 +1,66 @@
+name: Fix station decoupling GUI PR
+
+on:
+  pull_request_target:
+    types: [synchronize, opened]
+    branches: [jgrpp]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply GUI fix
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/vehicle_gui.cpp')
+          s = p.read_text(encoding='utf-8')
+          bad_size = '''\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple
+\t\t\t\tassert(v->type == VehicleType::Train);
+\t\t\t\tif (CanDecoupleTrainAtStation(Train::From(v))) {
+\t\t\t\t\tCommand<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t} else {
+\t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t}
+\t\t\t\tbreak;'''
+          if bad_size in s:
+              s = s.replace(bad_size, '', 1)
+          s = s.replace('''\t\tif (v->type == VehicleType::Train) {\n\t\t\tTrain *train = Train::From(v);''', '''\t\tif (v->type == VehicleType::Train) {\n\t\t\tconst Train *train = Train::From(v);''', 1)
+          old_click = '''\t\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple
+\t\t\t\tassert(v->type == VehicleType::Train);
+\t\t\t\tif (Train::From(v)->IsStoppedInDepot()) {
+\t\t\t\t\tCommand<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t} else {
+\t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t}
+\t\t\t\tbreak;'''
+          new_click = '''\t\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple
+\t\t\t\tassert(v->type == VehicleType::Train);
+\t\t\t\tif (CanDecoupleTrainAtStation(Train::From(v))) {
+\t\t\t\t\tCommand<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t} else {
+\t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t}
+\t\t\t\tbreak;'''
+          if old_click in s:
+              s = s.replace(old_click, new_click, 1)
+          p.write_text(s, encoding='utf-8', newline='\n')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- src/vehicle_gui.cpp; then
+            echo "No GUI changes needed"
+          else
+            git add src/vehicle_gui.cpp
+            git commit -m "0.0.3: Fix station decoupling GUI"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
