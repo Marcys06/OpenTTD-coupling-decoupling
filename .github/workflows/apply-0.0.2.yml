@@ -1,0 +1,32 @@
+name: Apply 0.0.2 coupling patch
+
+on:
+  push:
+    branches: [jgrpp]
+    paths:
+      - .github/workflows/apply-0.0.2.yml
+      - patches/0.0.2.patch
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: git apply --index patches/0.0.2.patch
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-0.0.2.yml patches/0.0.2.patch
+          git add src/command_type.h src/train_cmd.h src/lang/english.txt src/vehicle_gui.cpp
+          git commit -m "0.0.2: Add in-game DECOUPLE test"
+          git push origin HEAD:jgrpp
