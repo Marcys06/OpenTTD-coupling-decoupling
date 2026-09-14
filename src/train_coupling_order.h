@@ -8,7 +8,9 @@
 #ifndef TRAIN_COUPLING_ORDER_H
 #define TRAIN_COUPLING_ORDER_H
 
+#include "command_func.h"
 #include "vehicle_type.h"
+#include "vehicleid_type.h"
 
 /** Sentinel used by the order GUI for a coupling/decoupling action. */
 static constexpr uint16_t TRAIN_COUPLING_ORDER_ACTION = 0xFFFF;
@@ -17,6 +19,12 @@ static constexpr uint16_t TRAIN_COUPLING_ORDER_ACTION = 0xFFFF;
 constexpr bool IsTrainCouplingOrderAction(uint16_t action)
 {
 	return action == TRAIN_COUPLING_ORDER_ACTION;
+}
+
+/** Post the station coupling/decoupling command for a train. */
+inline bool PostTrainCouplingOrderAction(DoCommandFlag flags, VehicleID vehicle)
+{
+	return Command<Commands::DecoupleTrain>::Post(vehicle, VehicleID::Invalid()).Succeeded();
 }
 
 #endif /* TRAIN_COUPLING_ORDER_H */
