@@ -1,0 +1,97 @@
+name: Apply station decoupling GUI fix
+
+on:
+  push:
+    branches:
+      - fix/0.0.3-gui
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ !contains(github.event.head_commit.message, 'Fix station decoupling GUI') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply source fix
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('src/vehicle_gui.cpp')
+          s = p.read_text(encoding='utf-8')
+
+          bad_size = '''\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple
+\t\t\t\tassert(v->type == VehicleType::Train);
+\t\t\t\tif (CanDecoupleTrainAtStation(Train::From(v))) {
+\t\t\t\t\tCommand<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t} else {
+\t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t}
+\t\t\t\tbreak;'''
+          if bad_size not in s:
+              raise SystemExit('UpdateWidgetSize decouple block not found')
+          s = s.replace(bad_size, '', 1)
+
+          old_buttons = '''\t\tif (v->type == VehicleType::Train) {
+\t\t\tTrain *train = Train::From(v);
+\t\t\tif (CanDecoupleTrainAtStation(train) && can_control) {
+\t\t\t\tthis->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP);
+\t\t\t\tthis->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, false);
+\t\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, false);
+\t\t\t} else {
+\t\t\t\tthis->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_IGNORE_SIGNAL_TOOLTIP);
+\t\t\t\tthis->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, train->force_proceed == TFP_SIGNAL);
+\t\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_control);
+\t\t\t}
+\t\t}'''
+          new_buttons = '''\t\tif (v->type == VehicleType::Train) {
+\t\t\tconst Train *train = Train::From(v);
+\t\t\tif (CanDecoupleTrainAtStation(train) && can_control) {
+\t\t\t\tthis->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP);
+\t\t\t\tthis->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, false);
+\t\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, false);
+\t\t\t} else {
+\t\t\t\tthis->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_IGNORE_SIGNAL_TOOLTIP);
+\t\t\t\tthis->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, train->force_proceed == TFP_SIGNAL);
+\t\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_control);
+\t\t\t}
+\t\t}'''
+          if old_buttons not in s:
+              raise SystemExit('UpdateButtons block not found')
+          s = s.replace(old_buttons, new_buttons, 1)
+
+          old_click = '''\t\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple
+\t\t\t\tassert(v->type == VehicleType::Train);
+\t\t\t\tif (Train::From(v)->IsStoppedInDepot()) {
+\t\t\t\t\tCommand<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t} else {
+\t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t}
+\t\t\t\tbreak;'''
+          new_click = '''\t\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple
+\t\t\t\tassert(v->type == VehicleType::Train);
+\t\t\t\tif (CanDecoupleTrainAtStation(Train::From(v))) {
+\t\t\t\t\tCommand<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t} else {
+\t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+\t\t\t\t}
+\t\t\t\tbreak;'''
+          if old_click not in s:
+              raise SystemExit('click handler block not found')
+          s = s.replace(old_click, new_click, 1)
+
+          p.write_text(s, encoding='utf-8', newline='\n')
+
+      - name: Commit source fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/vehicle_gui.cpp
+          git diff --cached --quiet && exit 0
+          git commit -m "0.0.3: Fix station decoupling GUI"
+          git push
