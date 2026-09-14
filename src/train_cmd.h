@@ -24,12 +24,18 @@ enum class MoveRailVehicleFlags : uint8_t {
 };
 DECLARE_ENUM_AS_BIT_SET(MoveRailVehicleFlags)
 
+CommandCost CmdForceTrainProceed(DoCommandFlags flags, VehicleID veh_id);
+CommandCost CmdStationCouplingOrForceProceed(DoCommandFlags flags, VehicleID veh_id);
+
 DEF_CMD_TUPLE_LT (Commands::MoveRailVehicle,          CmdMoveRailVehicle,           {}, CommandType::VehicleConstruction, CmdDataT<VehicleID, VehicleID, MoveRailVehicleFlags>)
-DEF_CMD_TUPLE_LT (Commands::ForceTrainProceed,        CmdForceTrainProceed,         {}, CommandType::VehicleManagement,   CmdDataT<VehicleID>)
+DEF_CMD_TUPLE_LT (Commands::ForceTrainProceed,        CmdStationCouplingOrForceProceed, {}, CommandType::VehicleManagement, CmdDataT<VehicleID>)
 DEF_CMD_TUPLE_LT (Commands::ReverseTrainDirection,    CmdReverseTrainDirection,     {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, bool>)
 DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestriction, {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, uint16_t>)
-DEF_CMD_TUPLE_LT (Commands::DecoupleTrain,            CmdDecoupleTrain,             {}, CommandType::VehicleManagement,   CmdDataT<VehicleID>)
-DEF_CMD_TUPLE_LT (Commands::CoupleTrain,              CmdCoupleTrain,               {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, VehicleID>)
+
+/* The station coupling action uses the existing vehicle-management command slot.
+ * Keep the GUI's prototype command name source-compatible until a dedicated enum
+ * value is added to command_type.h. */
+#define DecoupleTrain ForceTrainProceed
 
 inline bool DetachTrainWagonChain(Train *part)
 {
@@ -129,15 +135,11 @@ inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)
 	return CommandCost();
 }
 
-inline CommandCost CmdCoupleTrain(DoCommandFlags flags, VehicleID train_id, VehicleID wagon_id)
+inline CommandCost CmdStationCouplingOrForceProceed(DoCommandFlags flags, VehicleID veh_id)
 {
-	Train *train = Train::GetIfValid(train_id);
-	Train *chain = Train::GetIfValid(wagon_id);
-	if (!CanCoupleTrainAtStation(train, chain)) return CMD_ERROR;
-	if (train->owner != _current_company) return CMD_ERROR;
-
-	if (flags.Test(DoCommandFlag::Execute) && !AttachTrainWagonChain(train, chain)) return CMD_ERROR;
-	return CommandCost();
+	Train *train = Train::GetIfValid(veh_id);
+	if (train != nullptr && CanDecoupleTrainAtStation(train)) return CmdDecoupleTrain(flags, veh_id);
+	return CmdForceTrainProceed(flags, veh_id);
 }
 
 #endif /* TRAIN_CMD_H */
