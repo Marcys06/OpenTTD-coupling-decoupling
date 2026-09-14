@@ -95,7 +95,7 @@ inline bool AttachTrainWagonChain(Train *dst, Train *chain)
  * Return whether a train can be decoupled at its current station stop.
  * Coupling/decoupling is a route operation, not a depot operation.
  */
-inline bool CanDecoupleTrainAtStation(const Train *train)
+inline bool CanDecoupleTrainAtStation(Train *train)
 {
 	if (train == nullptr || !train->IsPrimaryVehicle()) return false;
 	if (train->IsStoppedInDepot()) return false;
