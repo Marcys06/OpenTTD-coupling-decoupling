@@ -1,0 +1,127 @@
+name: Fix 0.0.3 station decoupling
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [jgrpp]
+    paths:
+      - '.github/workflows/fix-0.0.3.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply source changes
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8', newline='')
+
+          # Add the command enum once.
+          p = 'src/command_type.h'
+          s = read(p)
+          if 'DecoupleTrain' not in s:
+              marker = '\tEnd,                                    ///< Must ALWAYS be on the end of this list!! (period)'
+              if marker not in s:
+                  raise SystemExit('command_type.h End marker not found')
+              s = s.replace(marker, '\tDecoupleTrain,                          ///< Decouple the last wagon at a station\n\n' + marker, 1)
+              write(p, s)
+
+          # Add command declaration and implementation to train_cmd.h.
+          p = 'src/train_cmd.h'
+          s = read(p)
+          if 'Commands::DecoupleTrain' not in s:
+              marker = 'DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestriction, {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, uint16_t>)'
+              if marker not in s:
+                  raise SystemExit('train_cmd.h command marker not found')
+              s = s.replace(marker, marker + '\nDEF_CMD_TUPLE_LT (Commands::DecoupleTrain,            CmdDecoupleTrain,            {}, CommandType::VehicleManagement,   CmdDataT<VehicleID>)', 1)
+
+              function = '''\n/** Return whether the last wagon can be detached from a train stopped at a station. */\ninline bool CanDecoupleTrainAtStation(Train *train)\n{\n\tif (train == nullptr || !train->IsPrimaryVehicle()) return false;\n\tif (!train->vehstatus.Test(VehState::Stopped) || train->cur_speed != 0) return false;\n\tif (!train->current_order.IsAnyLoadingType()) return false;\n\n\tTrain *last_unit = train->GetLastUnit();\n\treturn last_unit != nullptr && last_unit->IsWagon();\n}\n\n/** Decouple the last wagon of a train stopped at a station. */\ninline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)\n{\n\tTrain *train = Train::GetIfValid(veh_id);\n\tif (!CanDecoupleTrainAtStation(train)) return CMD_ERROR;\n\tif (train->owner != _current_company) return CMD_ERROR;\n\n\tTrain *last_unit = train->GetLastUnit();\n\tif (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(last_unit)) return CMD_ERROR;\n\treturn CommandCost();\n}\n'''
+              end = '#endif /* TRAIN_CMD_H */'
+              if end not in s:
+                  raise SystemExit('train_cmd.h end marker not found')
+              s = s.replace(end, function + '\n' + end, 1)
+              write(p, s)
+
+          # Add tooltip once.
+          p = 'src/lang/english.txt'
+          s = read(p)
+          if 'STR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP' not in s:
+              marker = 'STR_VEHICLE_VIEW_TRAIN_IGNORE_SIGNAL_TOOLTIP'
+              m = re.search(r'(?m)^' + re.escape(marker) + r'.*$', s)
+              if not m:
+                  raise SystemExit('ignore-signal tooltip not found')
+              s = s[:m.end()] + '\nSTR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP                         :{BLACK}DECOUPLE: detach the last wagon at a station' + s[m.end():]
+              write(p, s)
+
+          # Replace the GUI update block by locating the train block which contains FORCE_PROCEED.
+          p = 'src/vehicle_gui.cpp'
+          s = read(p)
+
+          def replace_braced_block(text, start_text, required_text, replacement):
+              start = text.find(start_text)
+              while start != -1:
+                  brace = text.find('{', start)
+                  if brace == -1:
+                      break
+                  depth = 0
+                  end = None
+                  for i in range(brace, len(text)):
+                      if text[i] == '{':
+                          depth += 1
+                      elif text[i] == '}':
+                          depth -= 1
+                          if depth == 0:
+                              end = i + 1
+                              break
+                  if end is None:
+                      break
+                  block = text[start:end]
+                  if required_text in block:
+                      return text[:start] + replacement + text[end:], True
+                  start = text.find(start_text, end)
+              return text, False
+
+          update_block = '''\t\tif (v->type == VehicleType::Train) {\n\t\t\tTrain *train = Train::From(v);\n\t\t\tif (CanDecoupleTrainAtStation(train) && can_control) {\n\t\t\t\tthis->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP);\n\t\t\t\tthis->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, false);\n\t\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, false);\n\t\t\t} else {\n\t\t\t\tthis->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_IGNORE_SIGNAL_TOOLTIP);\n\t\t\t\tthis->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, train->force_proceed == TFP_SIGNAL);\n\t\t\t\tthis->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_control);\n\t\t\t}\n\t\t}'''
+          s, changed = replace_braced_block(s, '\t\tif (v->type == VehicleType::Train)', 'WID_VV_FORCE_PROCEED', update_block)
+          if not changed and 'CanDecoupleTrainAtStation(train)' not in s:
+              raise SystemExit('Could not locate train FORCE_PROCEED update block')
+
+          click_block = '''\t\t\tcase WID_VV_FORCE_PROCEED: // force proceed / decouple\n\t\t\t\tassert(v->type == VehicleType::Train);\n\t\t\t\tif (CanDecoupleTrainAtStation(Train::From(v))) {\n\t\t\t\t\tCommand<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);\n\t\t\t\t} else {\n\t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);\n\t\t\t\t}\n\t\t\t\tbreak;'''
+          pattern = re.compile(r'\t\t\tcase WID_VV_FORCE_PROCEED:.*?\n\t\t\t\tbreak;', re.S)
+          matches = list(pattern.finditer(s))
+          if not matches:
+              raise SystemExit('Could not locate FORCE_PROCEED click handler')
+          # Use the first handler; this case is unique in the vehicle view event switch.
+          m = matches[0]
+          if 'Command<Commands::DecoupleTrain>::Post' not in m.group(0):
+              s = s[:m.start()] + click_block + s[m.end():]
+
+          write(p, s)
+          print('0.0.3 fixed source changes applied')
+
+      - name: Validate diff
+        run: git diff --check
+
+      - name: Commit source and remove workflows
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/apply-0.0.3.yml .github/workflows/fix-0.0.3.yml
+          git add src/command_type.h src/train_cmd.h src/lang/english.txt src/vehicle_gui.cpp .github/workflows/apply-0.0.3.yml .github/workflows/fix-0.0.3.yml
+          git commit -m "0.0.3: Decouple trains at stations"
+          git push origin HEAD:jgrpp
