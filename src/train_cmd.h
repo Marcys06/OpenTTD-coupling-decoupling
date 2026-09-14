@@ -1,6 +1,6 @@
 /*
  * This file is part of OpenTTD.
- * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
  * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
  */
@@ -50,7 +50,6 @@ inline bool DetachTrainWagonChain(Train *part)
 	Train *front = part->First();
 	if (front == nullptr || !front->IsFrontEngine()) return false;
 
-	/* GetLastEnginePart() includes the articulated parts belonging to this wagon. */
 	Train *tail = part->GetLastEnginePart();
 	if (tail == nullptr) return false;
 
@@ -84,7 +83,6 @@ inline bool AttachTrainWagonChain(Train *dst, Train *chain)
 	Train *last_unit = dst->GetLastUnit();
 	if (last_unit == nullptr) return false;
 
-	/* GetLastUnit() points to the first part of the last logical unit. */
 	Train *last_part = last_unit->GetLastEnginePart();
 	if (last_part == nullptr) return false;
 
@@ -93,17 +91,30 @@ inline bool AttachTrainWagonChain(Train *dst, Train *chain)
 	return true;
 }
 
+/**
+ * Return whether a train can be decoupled at its current station stop.
+ * Coupling/decoupling is a route operation, not a depot operation.
+ */
+inline bool CanDecoupleTrainAtStation(const Train *train)
+{
+	if (train == nullptr || !train->IsPrimaryVehicle()) return false;
+	if (train->IsStoppedInDepot()) return false;
+	if (!train->vehstatus.Test(VehState::Stopped) || train->cur_speed != 0) return false;
+	if (!train->current_order.IsAnyLoadingType()) return false;
+
+	Train *last_unit = train->GetLastUnit();
+	return last_unit != nullptr && last_unit->IsWagon();
+}
+
 /** Prototype command for the first in-game coupling test. */
 inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)
 {
 	Train *train = Train::GetIfValid(veh_id);
 	if (train == nullptr || !train->IsPrimaryVehicle()) return CMD_ERROR;
 	if (train->owner != _current_company) return CMD_ERROR;
-	if (!train->IsStoppedInDepot()) return CMD_ERROR;
+	if (!CanDecoupleTrainAtStation(train)) return CMD_ERROR;
 
 	Train *last_unit = train->GetLastUnit();
-	if (last_unit == nullptr || !last_unit->IsWagon()) return CMD_ERROR;
-
 	if (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(last_unit)) return CMD_ERROR;
 	return CommandCost();
 }
