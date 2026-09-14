@@ -16,65 +16,11 @@ jobs:
           ref: jgrpp
           fetch-depth: 0
 
-      - name: Fix source
+      - name: Fix vehicle GUI source
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
-          p = Path('src/train_cmd.h')
-          s = p.read_text(encoding='utf-8')
-
-          marker = '/** Prototype command for the first in-game coupling test. */'
-          helper = '''/**
-           * Return whether a train can be decoupled at its current station stop.
-           * This deliberately excludes depots: coupling/decoupling is a route operation.
-           */
-          inline bool CanDecoupleTrainAtStation(const Train *train)
-          {
-              if (train == nullptr || !train->IsPrimaryVehicle()) return false;
-              if (train->IsStoppedInDepot()) return false;
-              if (!train->vehstatus.Test(VehState::Stopped) || train->cur_speed != 0) return false;
-              if (!train->current_order.IsAnyLoadingType()) return false;
-
-              Train *last_unit = train->GetLastUnit();
-              return last_unit != nullptr && last_unit->IsWagon();
-          }
-
-          '''
-          if 'inline bool CanDecoupleTrainAtStation' not in s:
-              if marker not in s:
-                  raise SystemExit('train_cmd.h insertion marker not found')
-              s = s.replace(marker, helper + marker, 1)
-
-          old = '''inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)
-          {
-              Train *train = Train::GetIfValid(veh_id);
-              if (train == nullptr || !train->IsPrimaryVehicle()) return CMD_ERROR;
-              if (train->owner != _current_company) return CMD_ERROR;
-              if (!train->IsStoppedInDepot()) return CMD_ERROR;
-
-              Train *last_unit = train->GetLastUnit();
-              if (last_unit == nullptr || !last_unit->IsWagon()) return CMD_ERROR;
-
-              if (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(last_unit)) return CMD_ERROR;
-              return CommandCost();
-          }'''
-          new = '''inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)
-          {
-              Train *train = Train::GetIfValid(veh_id);
-              if (train == nullptr || !train->IsPrimaryVehicle()) return CMD_ERROR;
-              if (train->owner != _current_company) return CMD_ERROR;
-              if (!CanDecoupleTrainAtStation(train)) return CMD_ERROR;
-
-              Train *last_unit = train->GetLastUnit();
-              if (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(last_unit)) return CMD_ERROR;
-              return CommandCost();
-          }'''
-          if old not in s:
-              raise SystemExit('old CmdDecoupleTrain block not found')
-          s = s.replace(old, new, 1)
-          p.write_text(s, encoding='utf-8', newline='\n')
 
           p = Path('src/vehicle_gui.cpp')
           s = p.read_text(encoding='utf-8')
@@ -87,15 +33,9 @@ jobs:
 \t\t\t\t\tCommand<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
 \t\t\t\t}
 \t\t\t\tbreak;'''
-          good_size = '''\t\tcase WID_VV_FORCE_PROCEED:
-\t\t\t\tif (v->type != VehicleType::Train) {
-\t\t\t\t\tsize.height = 0;
-\t\t\t\t\tsize.width = 0;
-\t\t\t\t}
-\t\t\t\tbreak;'''
           if bad_size not in s:
               raise SystemExit('bad UpdateWidgetSize block not found')
-          s = s.replace(bad_size, good_size, 1)
+          s = s.replace(bad_size, '', 1)
 
           bad_buttons = '''\t\tif (v->type == VehicleType::Train) {
 \t\t\tTrain *train = Train::From(v);
@@ -144,6 +84,7 @@ jobs:
           if old_click not in s:
               raise SystemExit('old click block not found')
           s = s.replace(old_click, new_click, 1)
+
           p.write_text(s, encoding='utf-8', newline='\n')
           PY
 
@@ -152,7 +93,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/train_cmd.h src/vehicle_gui.cpp .github/workflows/fix-build-errors.yml
+          git add src/vehicle_gui.cpp .github/workflows/fix-build-errors.yml
           git commit -m "0.0.3: Fix decoupling GUI compile errors"
           git rm .github/workflows/fix-build-errors.yml
           git commit -m "0.0.3: Remove temporary fix workflow"
