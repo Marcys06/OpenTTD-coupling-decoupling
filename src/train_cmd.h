@@ -30,12 +30,12 @@ DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestrictio
 /**
  * Detach a wagon unit and all following units from a train consist.
  *
- * The returned chain keeps the original Train objects and vehicle IDs. No vehicle
- * is cloned or recreated. The detached chain becomes a free wagon chain and can
- * subsequently be attached to another consist with AttachTrainWagonChain().
+ * The detached chain keeps the original Train objects and vehicle IDs. No vehicle
+ * is cloned or recreated. The chain becomes a free wagon chain and can subsequently
+ * be attached to another consist with AttachTrainWagonChain().
  *
- * The operation is deliberately limited to logical wagon-unit boundaries. An
- * articulated vehicle may therefore only be detached from its first part.
+ * Only logical wagon-unit boundaries are accepted. An articulated vehicle therefore
+ * cannot be split between its individual articulated parts.
  *
  * @param part First vehicle of the wagon unit to detach.
  * @return true when the chain was detached, false when the request is invalid.
@@ -45,15 +45,16 @@ inline bool DetachTrainWagonChain(Train *part)
 	if (part == nullptr || part->Previous() == nullptr) return false;
 	if (part->IsEngine() || part->IsArticulatedPart()) return false;
 
-	Train *front = part->GetFrontEngine();
+	Train *front = part->First();
 	if (front == nullptr || !front->IsFrontEngine()) return false;
 
-	/* Do not allow a split inside an articulated vehicle. */
+	/* GetLastEnginePart() includes the articulated parts belonging to this wagon. */
 	Train *tail = part->GetLastEnginePart();
 	if (tail == nullptr) return false;
 
+	Train *previous = part->Previous();
 	Train *next = tail->Next();
-	part->Previous()->SetNext(next);
+	previous->SetNext(next);
 	tail->SetNext(nullptr);
 
 	front->ConsistChanged(CCF_ARRANGE);
@@ -64,8 +65,8 @@ inline bool DetachTrainWagonChain(Train *part)
 /**
  * Attach a detached wagon chain to the rear of a train consist.
  *
- * Both arguments must describe existing physical Train objects. The chain must
- * already be detached (Previous() == nullptr) and must not contain an engine.
+ * The chain must already be detached (Previous() == nullptr) and must not start
+ * with an engine. The physical Train objects and their vehicle IDs are preserved.
  *
  * @param dst Front engine of the destination train.
  * @param chain First vehicle of a free wagon chain.
@@ -77,11 +78,6 @@ inline bool AttachTrainWagonChain(Train *dst, Train *chain)
 	if (!dst->IsFrontEngine() || dst->Previous() != nullptr) return false;
 	if (!chain->IsFreeWagon() || chain->Previous() != nullptr) return false;
 	if (chain->IsEngine() || chain->IsArticulatedPart()) return false;
-
-	Train *tail = chain;
-	while (tail->Next() != nullptr) {
-		tail = tail->Next();
-	}
 
 	Train *last_unit = dst->GetLastUnit();
 	if (last_unit == nullptr) return false;
