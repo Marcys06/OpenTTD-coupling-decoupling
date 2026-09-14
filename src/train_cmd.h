@@ -10,6 +10,7 @@
 #ifndef TRAIN_CMD_H
 #define TRAIN_CMD_H
 
+#include "company_func.h"
 #include "command_type.h"
 #include "vehicle_type.h"
 #include "train.h"
@@ -26,6 +27,7 @@ DEF_CMD_TUPLE_LT (Commands::MoveRailVehicle,          CmdMoveRailVehicle,       
 DEF_CMD_TUPLE_LT (Commands::ForceTrainProceed,        CmdForceTrainProceed,         {}, CommandType::VehicleManagement,   CmdDataT<VehicleID>)
 DEF_CMD_TUPLE_LT (Commands::ReverseTrainDirection,    CmdReverseTrainDirection,     {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, bool>)
 DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestriction, {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, uint16_t>)
+DEF_CMD_TUPLE_LT (Commands::DecoupleTrain,            CmdDecoupleTrain,             {}, CommandType::VehicleManagement,   CmdDataT<VehicleID>)
 
 /**
  * Detach a wagon unit and all following units from a train consist.
@@ -89,6 +91,21 @@ inline bool AttachTrainWagonChain(Train *dst, Train *chain)
 	last_part->SetNext(chain);
 	dst->ConsistChanged(CCF_ARRANGE);
 	return true;
+}
+
+/** Prototype command for the first in-game coupling test. */
+inline CommandCost CmdDecoupleTrain(DoCommandFlags flags, VehicleID veh_id)
+{
+	Train *train = Train::GetIfValid(veh_id);
+	if (train == nullptr || !train->IsPrimaryVehicle()) return CMD_ERROR;
+	if (train->owner != _current_company) return CMD_ERROR;
+	if (!train->IsStoppedInDepot()) return CMD_ERROR;
+
+	Train *last_unit = train->GetLastUnit();
+	if (last_unit == nullptr || !last_unit->IsWagon()) return CMD_ERROR;
+
+	if (flags.Test(DoCommandFlag::Execute) && !DetachTrainWagonChain(last_unit)) return CMD_ERROR;
+	return CommandCost();
 }
 
 #endif /* TRAIN_CMD_H */

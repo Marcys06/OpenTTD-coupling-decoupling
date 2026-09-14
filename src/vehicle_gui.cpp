@@ -4133,8 +4133,17 @@ public:
 		this->UpdateDepotButton();
 
 		if (v->type == VehicleType::Train) {
-			this->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, Train::From(v)->force_proceed == TFP_SIGNAL);
-			this->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_control);
+			Train *train = Train::From(v);
+			if (train->IsStoppedInDepot()) {
+				bool can_decouple = can_control && train->GetLastUnit() != nullptr && train->GetLastUnit()->IsWagon();
+				this->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_DECOUPLE_TOOLTIP);
+				this->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, false);
+				this->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_decouple);
+			} else {
+				this->GetWidget<NWidgetCore>(WID_VV_FORCE_PROCEED)->SetToolTip(STR_VEHICLE_VIEW_TRAIN_IGNORE_SIGNAL_TOOLTIP);
+				this->SetWidgetLoweredState(WID_VV_FORCE_PROCEED, train->force_proceed == TFP_SIGNAL);
+				this->SetWidgetDisabledState(WID_VV_FORCE_PROCEED, !can_control);
+			}
 		}
 
 		if (v->type == VehicleType::Train || v->type == VehicleType::Road) {
@@ -4529,9 +4538,13 @@ public:
 					Command<Commands::ReverseTrainDirection>::Post(_vehicle_msg_translation_table[VCT_CMD_TURN_AROUND][v->type], v->tile, v->index, false);
 				}
 				break;
-			case WID_VV_FORCE_PROCEED: // force proceed
+			case WID_VV_FORCE_PROCEED: // force proceed / decouple
 				assert(v->type == VehicleType::Train);
-				Command<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+				if (Train::From(v)->IsStoppedInDepot()) {
+					Command<Commands::DecoupleTrain>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+				} else {
+					Command<Commands::ForceTrainProceed>::Post(STR_ERROR_CAN_T_MAKE_TRAIN_PASS_SIGNAL, v->tile, v->index);
+				}
 				break;
 		}
 	}

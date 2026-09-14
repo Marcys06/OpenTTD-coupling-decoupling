@@ -772,6 +772,8 @@ enum class Commands : uint8_t {
 
 	DesyncCheck,                            ///< Force desync checks to be run
 
+	DecoupleTrain,                          ///< Detach the last wagon from a stopped train
+
 	End,                                    ///< Must ALWAYS be on the end of this list!! (period)
 };
 
