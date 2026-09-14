@@ -1,6 +1,6 @@
 /*
  * This file is part of OpenTTD.
- * OpenTTD is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
  * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
  */
 
@@ -52,6 +52,8 @@ inline bool DetachTrainWagonChain(Train *part)
 
 	front->ConsistChanged(CCF_ARRANGE);
 	part->ConsistChanged(CCF_ARRANGE);
+	UpdateTrainGroupID(front);
+	UpdateTrainGroupID(part);
 	return true;
 }
 
@@ -70,6 +72,7 @@ inline bool AttachTrainWagonChain(Train *dst, Train *chain)
 	chain->ClearFreeWagon();
 	last_part->SetNext(chain);
 	dst->ConsistChanged(CCF_ARRANGE);
+	UpdateTrainGroupID(dst);
 	return true;
 }
 
